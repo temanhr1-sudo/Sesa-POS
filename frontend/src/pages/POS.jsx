@@ -1,13 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
-import { ShoppingCart, Search, ScanLine, X, Plus, Minus, CreditCard, CheckCircle, User, Printer, Lock, Unlock, Clock, UserPlus } from 'lucide-react';
+import { 
+  ShoppingCart, Search, ScanLine, X, Plus, Minus, CreditCard, 
+  CheckCircle, User, Printer, Lock, Unlock, Clock, UserPlus, WifiOff 
+} from 'lucide-react';
+// IMPORT FUNGSI BRANKAS LOKAL
+import { saveMasterData, getMasterData, addTransactionToQueue } from '../utils/offlineDB';
 
 export default function POS() {
   const { token, user } = useAuthStore();
   const [products, setProducts] = useState([]);
   const [patients, setPatients] = useState([]);
   
+  // === STATE SENSOR OFFLINE ===
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Semua');
   const [manualBarcode, setManualBarcode] = useState('');
@@ -40,22 +48,49 @@ export default function POS() {
     phone: '',
     email: '',
     address: '',
-    gender: 'P' // Default Perempuan untuk mempercepat kasir
+    gender: 'P'
   });
 
+  // === REF UNTUK AUTO-FOCUS (KASIR SUPER CEPAT) ===
   const barcodeInputRef = useRef(null);
+  const paidAmountRef = useRef(null);
+  const printBtnRef = useRef(null);
+
+  // === EVENT LISTENER INTERNET ===
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // === EVENT LISTENER UNTUK TOMBOL ESCAPE ===
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && receiptModal) {
+        closeReceiptModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [receiptModal]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         setShiftLoading(true);
-        // 1. Cek Shift Aktif
+        if (!navigator.onLine) throw new Error('Offline mode');
+
         const shiftRes = await axios.get(`${import.meta.env.VITE_API_URL}/shifts/active`, { 
           headers: { Authorization: `Bearer ${token}` } 
         });
         setActiveShift(shiftRes.data.data);
+        await saveMasterData('active_shift', shiftRes.data.data);
 
-        // 2. Tarik Data Produk & Pasien
         setLoading(true);
         const [resProducts, resPatients] = await Promise.all([
           axios.get(`${import.meta.env.VITE_API_URL}/products`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -63,33 +98,59 @@ export default function POS() {
         ]);
         setProducts(resProducts.data.data);
         setPatients(resPatients.data.data);
+
+        await saveMasterData('products', resProducts.data.data);
+        await saveMasterData('patients', resPatients.data.data);
+
       } catch (err) {
-        console.error('Gagal mengambil data:', err);
+        console.warn('Gagal koneksi ke server, beralih ke Mode Offline...', err);
+        const localShift = await getMasterData('active_shift');
+        const localProducts = await getMasterData('products');
+        const localPatients = await getMasterData('patients');
+
+        if (localShift) setActiveShift(localShift);
+        if (localProducts) setProducts(localProducts);
+        if (localPatients) setPatients(localPatients);
       } finally {
         setShiftLoading(false);
         setLoading(false);
       }
     };
     fetchInitialData();
-  }, [token]);
+  }, [token, isOffline]); 
 
+  // Auto-focus Barcode
   useEffect(() => {
-    if (activeShift && barcodeInputRef.current && !checkoutModal && !receiptModal && !showAddPatientModal) {
-      barcodeInputRef.current.focus();
+    if (activeShift && !checkoutModal && !receiptModal && !showAddPatientModal) {
+      setTimeout(() => barcodeInputRef.current?.focus(), 100);
     }
   }, [activeShift, checkoutModal, receiptModal, showAddPatientModal]);
 
-  // === FUNGSI SHIFT ===
+  // Auto-focus Input Nominal Uang saat Checkout dibuka
+  useEffect(() => {
+    if (checkoutModal && paymentMethod === 'tunai') {
+      setTimeout(() => paidAmountRef.current?.focus(), 100);
+    }
+  }, [checkoutModal, paymentMethod]);
+
+  // Auto-focus Tombol Cetak Struk saat Receipt dibuka
+  useEffect(() => {
+    if (receiptModal) {
+      setTimeout(() => printBtnRef.current?.focus(), 100);
+    }
+  }, [receiptModal]);
+
   const handleOpenShift = async (e) => {
     e.preventDefault();
+    if (isOffline) return alert('Buka shift harus dalam keadaan Online (Internet menyala).');
     try {
       await axios.post(`${import.meta.env.VITE_API_URL}/shifts/open`, 
         { starting_cash: Number(startingCash) }, 
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // Refresh status shift
       const shiftRes = await axios.get(`${import.meta.env.VITE_API_URL}/shifts/active`, { headers: { Authorization: `Bearer ${token}` } });
       setActiveShift(shiftRes.data.data);
+      await saveMasterData('active_shift', shiftRes.data.data);
     } catch (err) {
       alert(err.response?.data?.message || 'Gagal membuka shift kasir');
     }
@@ -97,6 +158,7 @@ export default function POS() {
 
   const handleCloseShift = async (e) => {
     e.preventDefault();
+    if (isOffline) return alert('Tutup shift harus dalam keadaan Online agar data terekam.');
     try {
       const res = await axios.post(`${import.meta.env.VITE_API_URL}/shifts/close`, 
         { actual_cash: Number(actualCash) }, 
@@ -112,27 +174,27 @@ export default function POS() {
       setShowCloseShift(false);
       setActualCash('');
       setStartingCash('');
+      await saveMasterData('active_shift', null);
     } catch (err) {
       alert(err.response?.data?.message || 'Gagal menutup shift');
     }
   };
 
-  // === FUNGSI TAMBAH MEMBER JALAN PINTAS ===
   const handleAddPatientSubmit = async (e) => {
     e.preventDefault();
+    if (isOffline) return alert('Tidak bisa menambah member saat Offline.');
     try {
       setPatientLoading(true);
       const res = await axios.post(`${import.meta.env.VITE_API_URL}/patients`, newPatientData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      // Ambil ulang data pasien agar yang baru masuk ke list
       const resPatients = await axios.get(`${import.meta.env.VITE_API_URL}/patients`, { 
         headers: { Authorization: `Bearer ${token}` } 
       });
       setPatients(resPatients.data.data);
+      await saveMasterData('patients', resPatients.data.data); 
       
-      // Otomatis pilih pasien yang baru dibuat
       const createdPatient = res.data.data;
       if (createdPatient && createdPatient.id) {
         setSelectedPatient(createdPatient.id);
@@ -178,6 +240,13 @@ export default function POS() {
 
   const handleManualBarcodeSubmit = (e) => {
     e.preventDefault();
+    if (!manualBarcode.trim()) {
+      if (cart.length > 0 && activeShift) {
+        setCheckoutModal(true);
+      }
+      return;
+    }
+
     handleScan(manualBarcode);
     setManualBarcode(''); 
     if (barcodeInputRef.current) barcodeInputRef.current.focus(); 
@@ -217,7 +286,9 @@ export default function POS() {
 
   const subtotal = cart.reduce((sum, item) => sum + (Number(item.sell_price) * item.qty), 0);
   const total = subtotal - Number(discount);
-  const kembalian = paymentMethod === 'tunai' && Number(paidAmount) > 0 ? Number(paidAmount) - total : 0;
+
+  const calculatedPaidAmount = paidAmount === '' ? total : Number(paidAmount);
+  const kembalian = paymentMethod === 'tunai' ? calculatedPaidAmount - total : 0;
 
   const filteredProducts = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase());
@@ -225,20 +296,21 @@ export default function POS() {
     return matchSearch && matchCat;
   });
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (e) => {
+    if (e) e.preventDefault(); 
     if (cart.length === 0) return alert('Keranjang kosong!');
-    if (paymentMethod === 'tunai' && Number(paidAmount) < total) return alert('Nominal bayar kurang!');
+    if (paymentMethod === 'tunai' && calculatedPaidAmount < total) return alert('Nominal bayar kurang!');
 
     try {
       setCheckoutLoading(true);
       const payload = {
-        shift_id: activeShift.id, // Menempelkan ID Shift aktif ke transaksi
+        shift_id: activeShift.id, 
         patient_id: selectedPatient || null,
         subtotal: subtotal,
         discount: Number(discount),
         total: total,
         payment_method: paymentMethod,
-        paid_amount: paymentMethod === 'tunai' ? Number(paidAmount) : total,
+        paid_amount: paymentMethod === 'tunai' ? calculatedPaidAmount : total,
         items: cart.map(item => ({
           product_id: item.id,
           name: item.name,
@@ -248,18 +320,25 @@ export default function POS() {
         }))
       };
 
-      const res = await axios.post(`${import.meta.env.VITE_API_URL}/transactions`, payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      let txCode = '';
+
+      if (isOffline) {
+        await addTransactionToQueue(payload);
+        txCode = `OFF-${Date.now().toString().slice(-6)}`;
+      } else {
+        const res = await axios.post(`${import.meta.env.VITE_API_URL}/transactions`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        txCode = res.data.data.tx_code;
+      }
 
       const patientInfo = patients.find(p => p.id === selectedPatient);
 
-      // Pastikan receiptData diset ulang sepenuhnya agar tidak ada sisa data (bug overlapping)
       setReceiptData(null); 
       
       setTimeout(() => {
         setReceiptData({
-          tx_code: res.data.data.tx_code,
+          tx_code: txCode,
           date: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
           cashier: user?.name,
           patient: patientInfo ? patientInfo.name : 'Umum',
@@ -268,7 +347,7 @@ export default function POS() {
           discount: Number(discount),
           total: total,
           paymentMethod: paymentMethod,
-          paidAmount: paymentMethod === 'tunai' ? Number(paidAmount) : total,
+          paidAmount: paymentMethod === 'tunai' ? calculatedPaidAmount : total,
           kembalian: kembalian
         });
         
@@ -289,7 +368,12 @@ export default function POS() {
       }, 50);
 
     } catch (err) {
-      alert(err.response?.data?.message || 'Gagal memproses transaksi');
+      if (!navigator.onLine || err.message === 'Network Error') {
+        alert('Koneksi terputus saat proses. Transaksi disimpan di Antrean Lokal.');
+        setIsOffline(true);
+      } else {
+        alert(err.response?.data?.message || 'Gagal memproses transaksi');
+      }
     } finally {
       setCheckoutLoading(false);
     }
@@ -297,7 +381,11 @@ export default function POS() {
 
   const executePrint = () => window.print();
 
-  // Jika sedang mengecek status shift di awal
+  const closeReceiptModal = () => {
+    setReceiptModal(false);
+    setTimeout(() => barcodeInputRef.current?.focus(), 100);
+  };
+
   if (shiftLoading) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-[#F8F9FA]">
@@ -337,8 +425,8 @@ export default function POS() {
                   />
                 </div>
               </div>
-              <button type="submit" className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold flex justify-center items-center gap-2 shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] transition-all cursor-pointer">
-                <Unlock className="w-5 h-5" /> BUKA SHIFT SEKARANG
+              <button type="submit" disabled={isOffline} className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold flex justify-center items-center gap-2 shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] disabled:opacity-50 transition-all cursor-pointer">
+                <Unlock className="w-5 h-5" /> {isOffline ? 'TIDAK ADA INTERNET' : 'BUKA SHIFT SEKARANG'}
               </button>
             </form>
           </div>
@@ -425,7 +513,7 @@ export default function POS() {
               </div>
               
               <div className="pt-4">
-                <button type="submit" disabled={patientLoading} className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-3.5 rounded-xl font-poppins font-bold shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center">
+                <button type="submit" disabled={patientLoading || isOffline} className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-3.5 rounded-xl font-poppins font-bold shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center">
                   {patientLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Simpan Member'}
                 </button>
               </div>
@@ -456,7 +544,14 @@ export default function POS() {
       {/* BAGIAN KIRI: Panel Produk & Scanner Barcode Fisik */}
       <div className="w-full lg:w-2/3 flex flex-col h-full border-r border-neutral-100 bg-white relative p-4 lg:p-6 print:hidden z-10 shadow-[4px_0_24px_rgba(0,0,0,0.01)]">
         
-        <div className="mb-6 flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
+        {/* BANNER OFFLINE MODE */}
+        {isOffline && (
+          <div className="absolute top-0 left-0 right-0 bg-rose-500 text-white text-xs font-bold py-1.5 flex items-center justify-center gap-2 z-50 animate-in slide-in-from-top">
+            <WifiOff className="w-3.5 h-3.5" /> INTERNET TERPUTUS - APLIKASI BERJALAN PADA MODE OFFLINE
+          </div>
+        )}
+
+        <div className={`mb-6 flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center ${isOffline ? 'mt-4' : ''}`}>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-poppins font-bold text-neutral-800 flex items-center gap-2 tracking-tight">
@@ -556,7 +651,6 @@ export default function POS() {
         <div className="p-5 border-b border-neutral-200 bg-white shadow-sm">
           <h2 className="text-lg font-poppins font-bold text-neutral-800 mb-4 flex items-center gap-2">Detail Transaksi</h2>
           
-          {/* PEMILIHAN PASIEN DAN TOMBOL JALAN PINTAS TAMBAH MEMBER */}
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center gap-3 bg-[#F8F9FA] border border-neutral-200 p-3 rounded-xl focus-within:border-[#D63384] focus-within:ring-2 focus-within:ring-[#D63384]/20 transition-all">
               <User className="w-5 h-5 text-[#D63384]" />
@@ -568,8 +662,9 @@ export default function POS() {
             
             <button 
               onClick={() => setShowAddPatientModal(true)}
-              title="Daftarkan Member Baru"
-              className="p-3 bg-gradient-to-br from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white rounded-xl shadow-[0_4px_10px_rgba(214,51,132,0.2)] transition-all cursor-pointer flex-shrink-0"
+              disabled={isOffline}
+              title={isOffline ? "Fitur dinonaktifkan saat offline" : "Daftarkan Member Baru"}
+              className="p-3 bg-gradient-to-br from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white rounded-xl shadow-[0_4px_10px_rgba(214,51,132,0.2)] disabled:opacity-50 transition-all cursor-pointer flex-shrink-0"
             >
               <UserPlus className="w-5 h-5" />
             </button>
@@ -630,7 +725,7 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Modal Checkout */}
+      {/* Modal Checkout - DIBUNGKUS DALAM FORM AGAR BISA TEKAN ENTER */}
       {checkoutModal && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
           <div className="bg-white border border-neutral-100 w-full max-w-md p-8 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-300">
@@ -646,38 +741,50 @@ export default function POS() {
               <p className="text-4xl font-poppins font-bold text-[#D63384] tracking-tight mt-2">Rp {total.toLocaleString('id-ID')}</p>
             </div>
 
-            <div className="mb-5">
-              <label className="block text-sm font-semibold text-neutral-600 mb-2.5 font-poppins">Metode Pembayaran</label>
-              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3.5 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 font-medium cursor-pointer appearance-none transition-all">
-                <option value="tunai">Uang Tunai (Cash)</option>
-                <option value="qris">Scan QRIS</option>
-                <option value="transfer">Transfer Bank</option>
-                <option value="debit">Kartu Debit/Kredit</option>
-                <option value="piutang">Piutang (Bayar Nanti)</option>
-              </select>
-            </div>
-
-            {paymentMethod === 'tunai' && (
-              <div className="mb-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div>
-                  <label className="block text-sm font-semibold text-neutral-600 mb-2.5 font-poppins">Uang Tunai Diterima (Rp)</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-3.5 text-neutral-400 font-bold">Rp</span>
-                    <input type="number" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} className="w-full bg-[#F8F9FA] border border-neutral-200 pl-12 pr-4 py-3.5 rounded-xl text-neutral-900 text-xl font-bold focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all font-mono" placeholder="0" />
-                  </div>
-                </div>
-                {Number(paidAmount) > 0 && (
-                  <div className="flex justify-between items-center bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                    <span className="text-emerald-700 font-medium">Uang Kembalian:</span>
-                    <span className={`text-lg font-poppins font-bold ${kembalian < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>Rp {kembalian.toLocaleString('id-ID')}</span>
-                  </div>
-                )}
+            <form onSubmit={handleCheckout}>
+              <div className="mb-5">
+                <label className="block text-sm font-semibold text-neutral-600 mb-2.5 font-poppins">Metode Pembayaran</label>
+                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3.5 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 font-medium cursor-pointer appearance-none transition-all">
+                  <option value="tunai">Uang Tunai (Cash)</option>
+                  <option value="qris" disabled={isOffline}>Scan QRIS {isOffline ? '(Tidak bisa offline)' : ''}</option>
+                  <option value="transfer" disabled={isOffline}>Transfer Bank {isOffline ? '(Tidak bisa offline)' : ''}</option>
+                  <option value="debit" disabled={isOffline}>Kartu Debit/Kredit {isOffline ? '(Tidak bisa offline)' : ''}</option>
+                  <option value="piutang">Piutang (Bayar Nanti)</option>
+                </select>
               </div>
-            )}
 
-            <button onClick={handleCheckout} disabled={checkoutLoading || (paymentMethod === 'tunai' && Number(paidAmount) < total)} className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold text-base shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] disabled:opacity-50 disabled:shadow-none transition-all flex justify-center items-center gap-2 cursor-pointer mt-4">
-              {checkoutLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><CheckCircle className="w-5 h-5" /> Selesaikan Transaksi</>}
-            </button>
+              {paymentMethod === 'tunai' && (
+                <div className="mb-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-600 mb-2.5 font-poppins flex justify-between">
+                      <span>Uang Tunai Diterima (Rp)</span>
+                      <span className="text-xs font-normal text-neutral-400">Kosongkan jika uang pas</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-3.5 text-neutral-400 font-bold">Rp</span>
+                      <input 
+                        ref={paidAmountRef}
+                        type="number" 
+                        value={paidAmount} 
+                        onChange={(e) => setPaidAmount(e.target.value)} 
+                        className="w-full bg-[#F8F9FA] border border-neutral-200 pl-12 pr-4 py-3.5 rounded-xl text-neutral-900 text-xl font-bold focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all font-mono placeholder:text-neutral-300" 
+                        placeholder={total.toString()} 
+                      />
+                    </div>
+                  </div>
+                  {paidAmount !== '' && Number(paidAmount) >= total && (
+                    <div className="flex justify-between items-center bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                      <span className="text-emerald-700 font-medium">Uang Kembalian:</span>
+                      <span className={`text-lg font-poppins font-bold ${kembalian < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>Rp {kembalian.toLocaleString('id-ID')}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button type="submit" disabled={checkoutLoading || (paymentMethod === 'tunai' && paidAmount !== '' && Number(paidAmount) < total)} className="w-full bg-gradient-to-r from-[#EC6BA5] to-[#D63384] hover:from-[#D63384] hover:to-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold text-base shadow-[0_4px_15px_rgba(214,51,132,0.25)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] disabled:opacity-50 disabled:shadow-none transition-all flex justify-center items-center gap-2 cursor-pointer mt-4">
+                {checkoutLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <><CheckCircle className="w-5 h-5" /> Selesaikan Transaksi</>}
+              </button>
+            </form>
           </div>
         </div>
       )}
@@ -688,13 +795,13 @@ export default function POS() {
           <div className="bg-white border border-neutral-100 p-8 rounded-3xl max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-300">
             <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"><CheckCircle className="w-10 h-10" /></div>
             <h3 className="text-neutral-800 font-poppins font-bold text-2xl mb-2 tracking-tight">Pembayaran Sukses!</h3>
-            <p className="text-neutral-500 text-sm mb-8 leading-relaxed font-medium">Transaksi telah tercatat otomatis ke dalam shift. Siapkan kertas di printer kasir.</p>
+            <p className="text-neutral-500 text-sm mb-8 leading-relaxed font-medium">Transaksi telah tercatat. Siapkan kertas di printer kasir.</p>
             <div className="flex flex-col gap-3">
-              <button onClick={executePrint} className="w-full bg-[#D63384] hover:bg-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-[0_4px_15px_rgba(214,51,132,0.3)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)]">
+              <button ref={printBtnRef} onClick={executePrint} className="w-full bg-[#D63384] hover:bg-[#8A1E4D] text-white py-4 rounded-xl font-poppins font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-[0_4px_15px_rgba(214,51,132,0.3)] hover:shadow-[0_6px_20px_rgba(214,51,132,0.4)] focus:ring-4 focus:ring-[#D63384]/40">
                 <Printer className="w-5 h-5" /> Cetak Struk Pasien
               </button>
-              <button onClick={() => setReceiptModal(false)} className="w-full bg-white hover:bg-neutral-50 text-neutral-600 py-4 rounded-xl font-poppins font-semibold border border-neutral-200 transition-colors cursor-pointer">
-                Tutup & Layani Antrian
+              <button onClick={closeReceiptModal} className="w-full bg-white hover:bg-neutral-50 text-neutral-600 py-4 rounded-xl font-poppins font-semibold border border-neutral-200 transition-colors cursor-pointer">
+                Tutup & Layani Antrian (Esc)
               </button>
             </div>
           </div>
@@ -706,7 +813,7 @@ export default function POS() {
         <div id="print-area" className="hidden print:block" style={{
           fontFamily: "'Courier New', Courier, monospace",
           fontSize: '10px',
-          fontWeight: 'bold',
+          fontWeight: 'normal',
           lineHeight: '1.3',
           width: '100%',
           maxWidth: '54mm',
@@ -715,7 +822,7 @@ export default function POS() {
           color: 'black',
           boxSizing: 'border-box'
         }}>
-          <div style={{ textAlign: 'center', fontSize: '13px' }}>SESA DERMATOLOGY</div>
+          <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: 'bold' }}>SESA DERMATOLOGY</div>
           <div style={{ textAlign: 'center' }}>Klinik & Apotek Internal</div>
           <div style={{ borderBottom: '1px dashed black', margin: '4px 0' }}></div>
 
@@ -746,7 +853,7 @@ export default function POS() {
               <span>Diskon:</span><span>-Rp {receiptData.discount.toLocaleString('id-ID')}</span>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid black', marginTop: '2px', paddingTop: '2px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid black', marginTop: '2px', paddingTop: '2px', fontSize: '12px', fontWeight: 'bold' }}>
             <span>TOTAL:</span><span>Rp {receiptData.total.toLocaleString('id-ID')}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
