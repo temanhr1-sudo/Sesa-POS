@@ -15,7 +15,7 @@ const getAllPatients = async (search) => {
 };
 
 const createPatient = async (data) => {
-  // Generate ID Pasien Format: P-00001 (KODEMU DIPERTAHANKAN)
+  // Generate ID Pasien Format: P-00001
   const countRes = await db.query('SELECT COUNT(*) FROM patients');
   const count = parseInt(countRes.rows[0].count) + 1;
   const patient_code = `P-${count.toString().padStart(5, '0')}`;
@@ -23,18 +23,16 @@ const createPatient = async (data) => {
   const { name, phone, email, gender, address, dob, allergies, notes } = data;
   const skin_conditions = data.skin_conditions ? `{${data.skin_conditions.join(',')}}` : '{}';
 
-  // Alamat dari Frontend akan digabung ke kolom notes agar tidak error di Database
-  const finalNotes = address ? `Alamat: ${address}\n${notes || ''}` : (notes || null);
-
+  // Masukkan address sebagai kolom mandiri, tidak lagi digabung ke dalam notes
   const query = `
-    INSERT INTO patients (patient_code, name, phone, email, gender, dob, skin_conditions, allergies, notes)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO patients (patient_code, name, phone, email, address, gender, dob, skin_conditions, allergies, notes)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *;
   `;
   
   const values = [
-    patient_code, name, phone, email || null, gender || null, 
-    dob || null, skin_conditions, allergies || null, finalNotes
+    patient_code, name, phone, email || null, address || null, gender || null, 
+    dob || null, skin_conditions, allergies || null, notes || null
   ];
 
   const result = await db.query(query, values);
@@ -45,18 +43,17 @@ const updatePatient = async (id, data) => {
   const { name, phone, email, gender, address, dob, allergies, notes } = data;
   const skin_conditions = data.skin_conditions ? `{${data.skin_conditions.join(',')}}` : '{}';
   
-  const finalNotes = address ? `Alamat: ${address}\n${notes || ''}` : (notes || null);
-
+  // Masukkan address sebagai kolom mandiri, tidak lagi digabung ke dalam notes
   const query = `
     UPDATE patients 
-    SET name = $1, phone = $2, email = $3, gender = $4, dob = $5, 
-        skin_conditions = $6, allergies = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
-    WHERE id = $9 RETURNING *;
+    SET name = $1, phone = $2, email = $3, address = $4, gender = $5, dob = $6, 
+        skin_conditions = $7, allergies = $8, notes = $9, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $10 RETURNING *;
   `;
 
   const values = [
-    name, phone, email || null, gender || null, dob || null, 
-    skin_conditions, allergies || null, finalNotes, id
+    name, phone, email || null, address || null, gender || null, dob || null, 
+    skin_conditions, allergies || null, notes || null, id
   ];
 
   const result = await db.query(query, values);

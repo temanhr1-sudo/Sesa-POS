@@ -487,12 +487,12 @@ export default function POS() {
             <form onSubmit={handleAddPatientSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-neutral-600 mb-1.5 font-poppins">Nama Lengkap</label>
-                <input type="text" required value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400" placeholder="Contoh: Sarah Azhari" />
+                <input type="text" required value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400 font-medium" placeholder="Contoh: Sarah Azhari" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-neutral-600 mb-1.5 font-poppins">Nomor Telepon</label>
-                  <input type="text" required value={newPatientData.phone} onChange={e => setNewPatientData({...newPatientData, phone: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400" placeholder="0812..." />
+                  <input type="text" required value={newPatientData.phone} onChange={e => setNewPatientData({...newPatientData, phone: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400 font-medium" placeholder="0812..." />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-neutral-600 mb-1.5 font-poppins">Jenis Kelamin</label>
@@ -500,7 +500,7 @@ export default function POS() {
                     required 
                     value={newPatientData.gender} 
                     onChange={e => setNewPatientData({...newPatientData, gender: e.target.value})} 
-                    className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all cursor-pointer appearance-none"
+                    className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all cursor-pointer appearance-none font-medium"
                   >
                     <option value="P">Perempuan</option>
                     <option value="L">Laki-Laki</option>
@@ -509,7 +509,17 @@ export default function POS() {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-neutral-600 mb-1.5 font-poppins">Email (Opsional)</label>
-                <input type="email" value={newPatientData.email} onChange={e => setNewPatientData({...newPatientData, email: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400" placeholder="sarah@email.com" />
+                <input type="email" value={newPatientData.email} onChange={e => setNewPatientData({...newPatientData, email: e.target.value})} className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400 font-medium" placeholder="sarah@email.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-600 mb-1.5 font-poppins">Alamat Rumah</label>
+                <textarea 
+                  rows="2"
+                  value={newPatientData.address} 
+                  onChange={e => setNewPatientData({...newPatientData, address: e.target.value})} 
+                  className="w-full bg-[#F8F9FA] border border-neutral-200 px-4 py-3 rounded-xl text-neutral-800 focus:outline-none focus:border-[#D63384] focus:ring-2 focus:ring-[#D63384]/20 transition-all placeholder:text-neutral-400 font-medium text-sm resize-none" 
+                  placeholder="Nama jalan, nomor rumah, RT/RW, kota..."
+                />
               </div>
               
               <div className="pt-4">

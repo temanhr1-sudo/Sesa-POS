@@ -24,6 +24,9 @@ import Receivables from './pages/Receivables';
 import ShiftHistory from './pages/ShiftHistory';
 import UsersPage from './pages/Users'; // <-- Komponen Baru
 
+// IMPORT INTEL BACKGROUND SYNC
+import { useBackgroundSync } from './hooks/useBackgroundSync';
+
 // ==========================================
 // 1. KOMPONEN LAYOUT & SIDEBAR DINAMIS
 // ==========================================
@@ -135,6 +138,10 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 function App() {
   const { token } = useAuthStore();
+  
+  // MENGAKTIFKAN INTEL BACKGROUND SYNC
+  useBackgroundSync(); 
+
   return (
     <Router>
       <Routes>

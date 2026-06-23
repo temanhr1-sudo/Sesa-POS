@@ -12,7 +12,12 @@ const getPatients = async (req, res) => {
 
 const addPatient = async (req, res) => {
   try {
-    const patient = await patientService.createPatient(req.body);
+    // Tangkap data secara spesifik, termasuk 'address'
+    const { name, phone, email, gender, address, dob, skin_conditions, allergies, notes } = req.body;
+    
+    const patient = await patientService.createPatient({ 
+      name, phone, email, gender, address, dob, skin_conditions, allergies, notes 
+    });
     res.status(201).json({ status: 'success', message: 'Pasien berhasil ditambahkan', data: patient });
   } catch (error) {
     console.error('\n❌ ERROR ADD PATIENT:', error.message);
@@ -22,7 +27,12 @@ const addPatient = async (req, res) => {
 
 const updatePatient = async (req, res) => {
   try {
-    const patient = await patientService.updatePatient(req.params.id, req.body);
+    // Tangkap data secara spesifik, termasuk 'address'
+    const { name, phone, email, gender, address, dob, skin_conditions, allergies, notes } = req.body;
+    
+    const patient = await patientService.updatePatient(req.params.id, { 
+      name, phone, email, gender, address, dob, skin_conditions, allergies, notes 
+    });
     res.status(200).json({ status: 'success', message: 'Data pasien berhasil diperbarui', data: patient });
   } catch (error) {
     console.error('\n❌ ERROR UPDATE PATIENT:', error.message);

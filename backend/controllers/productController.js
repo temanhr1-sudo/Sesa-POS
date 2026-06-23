@@ -15,18 +15,37 @@ const getProducts = async (req, res) => {
 
 const addProduct = async (req, res) => {
   try {
-    const product = await productService.createProduct(req.body);
+    // Tangkap data spesifik secara ketat termasuk kolom baru
+    const { 
+      name, category, barcode, buy_price, sell_price, stock, is_service, 
+      unit, batch_number, expired_date 
+    } = req.body;
+
+    const product = await productService.createProduct({
+      name, category, barcode, buy_price, sell_price, stock, is_service, 
+      unit, batch_number, expired_date
+    });
+
     res.status(201).json({ status: 'success', message: 'Produk berhasil ditambahkan', data: product });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-// Fungsi Baru: Update Produk (Termasuk untuk tambah stok dari Scanner)
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await productService.updateProduct(id, req.body);
+    
+    // Tangkap data spesifik secara ketat termasuk kolom baru
+    const { 
+      name, category, barcode, buy_price, sell_price, stock, is_service, 
+      unit, batch_number, expired_date 
+    } = req.body;
+
+    const product = await productService.updateProduct(id, {
+      name, category, barcode, buy_price, sell_price, stock, is_service, 
+      unit, batch_number, expired_date
+    });
     
     if (!product) {
       return res.status(404).json({ status: 'error', message: 'Produk tidak ditemukan' });
@@ -38,7 +57,6 @@ const updateProduct = async (req, res) => {
   }
 };
 
-// Fungsi Baru: Hapus Produk
 const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
